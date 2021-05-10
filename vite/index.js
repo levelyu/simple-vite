@@ -1,5 +1,4 @@
 const http = require('http');
-const url = require('url');
 const fs = require('fs');
 const path = require('path');
 const connect = require('connect');
@@ -70,24 +69,19 @@ const transformMiddleware = (req, res, next) => {
         return res.end(rewriteContent);
     }
     if (req.url.indexOf('.vue')!==-1) {
-        const query = url.parse(req.url).query;
         const vuePath = path.join(__dirname, '../', req.url.split('?')[0]);
         const vueContent =  fs.readFileSync(vuePath, 'utf-8');
         const vueParseContet = compileSFC.parse(vueContent);
-        let jsContent = '';
-        if (query && query === 'type=template') {
-            const tpl = vueParseContet.descriptor.template.content;
-            jsContent = compileDom.compile(tpl, { mode: 'module' }).code;
-        } else {
-            const scriptContent = vueParseContet.descriptor.script.content;
-            const replaceScript = scriptContent.replace('export default ', 'const __script = ');
-            jsContent = `
-                    ${rewriteImportOfJs(replaceScript)}
-                    import { render as __render } from '${req.url}?type=template'
-                    __script.render = __render;
-                    export default __script;
-            `;
-        }
+        const scriptContent = vueParseContet.descriptor.script.content;
+        const replaceScript = scriptContent.replace('export default ', 'const __script = ');
+        const tpl = vueParseContet.descriptor.template.content;
+        const tplCode = compileDom.compile(tpl, { mode: 'module' }).code;
+        const tplCodeReplace = tplCode.replace('export function render(_ctx, _cache)', '__script.render=(_ctx, _cache)=>');
+        const jsContent = `
+                ${rewriteImportOfJs(replaceScript)}
+                ${tplCodeReplace}
+                export default __script;
+        `;
         res.setHeader('Content-Type', 'application/javascript');
         res.statusCode = 200;
         return res.end(rewriteImportOfJs(jsContent));
