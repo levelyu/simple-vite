@@ -4,6 +4,8 @@
   "main": "index.js",
   "license": "MIT",
   "dependencies": {
-    "connect": "^3.7.0"
+    "@vue/compiler-sfc": "^3.0.11",
+    "connect": "^3.7.0",
+    "esbuild": "^0.11.20"
   }
 }
