@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const connect = require('connect');
 const esbuild = require('esbuild');
+const { init, parse } = require('es-module-lexer');
+const MagicString = require('magic-string');
 const middlewares = connect();
 const cacheDir = path.join(__dirname, '../', 'node_modules/.vite');
 const compileSFC = require('@vue/compiler-sfc');
@@ -26,8 +28,9 @@ const optimizeDeps = async () => {
     const outputs = Object.keys(result.metafile.outputs);
     const data = {};
     deps.forEach((dep) => {
-        data[dep] = outputs.find(output => output.endsWith(`${dep}.js`));
+        data[dep] = '/' + outputs.find(output => output.endsWith(`${dep}.js`));
     });
+    console.log(data);
     const dataPath = path.join(cacheDir, '_metadata.json');
     fs.writeFileSync(dataPath, JSON.stringify(data, null, 2));
 };
@@ -47,25 +50,39 @@ const indexHtmlMiddleware = (req, res, next) => {
     }
     next();
 };
-const rewriteImportOfJs = (jsContent) => {
-    const fromReg = / from ['"](.*)['"]/g;
-    return jsContent.replace(fromReg, (s1, s2) => {
-        if(s2.startsWith('/') || s2.startsWith('./') || s2.startsWith('../')) {
-            return s1;
-        } else {
-            const data = require(path.join(cacheDir, '_metadata.json'));
-            return ` from '/${data[s2]}'`;
-        }
-    });
+const importAnalysis = async (jsContent) => {
+    await init;
+    const [imports] = parse(jsContent);
+    const specifier = imports && imports[0] && imports[0].n;
+    
+    if (specifier) {
+        // TODO: 多个import的情况
+        const data = require(path.join(cacheDir, '_metadata.json'));
+        const realPath = data[specifier] || specifier;
+        const { s, e } = imports[0];
+        const ms = new MagicString(jsContent);
+        return ms.overwrite(s, e, realPath).toString();
+    } else {
+        return jsContent;
+    }
+    // const fromReg = / from ['"](.*)['"]/g;
+    // return jsContent.replace(fromReg, (s1, s2) => {
+    //     if(s2.startsWith('/') || s2.startsWith('./') || s2.startsWith('../')) {
+    //         return s1;
+    //     } else {
+    //         const data = require(path.join(cacheDir, '_metadata.json'));
+    //         return ` from '/${data[s2]}'`;
+    //     }
+    // });
 
 };
-const transformMiddleware = (req, res, next) => {
+const transformMiddleware = async (req, res, next) => {
     if (req.url.endsWith('.js') || req.url.endsWith('.map')) {
         const jsPath = path.join(__dirname, '../', req.url);
         const jsContent = fs.readFileSync(jsPath, 'utf-8');
         res.setHeader('Content-Type', 'application/javascript');
         res.statusCode = 200;
-        const rewriteContent = req.url.endsWith('.map') ? jsContent : rewriteImportOfJs(jsContent);
+        const rewriteContent = req.url.endsWith('.map') ? jsContent : await importAnalysis(jsContent);
         return res.end(rewriteContent);
     }
     if (req.url.indexOf('.vue')!==-1) {
@@ -78,13 +95,13 @@ const transformMiddleware = (req, res, next) => {
         const tplCode = compileDom.compile(tpl, { mode: 'module' }).code;
         const tplCodeReplace = tplCode.replace('export function render(_ctx, _cache)', '__script.render=(_ctx, _cache)=>');
         const jsContent = `
-                ${rewriteImportOfJs(replaceScript)}
+                ${await importAnalysis(replaceScript)}
                 ${tplCodeReplace}
                 export default __script;
         `;
         res.setHeader('Content-Type', 'application/javascript');
         res.statusCode = 200;
-        return res.end(rewriteImportOfJs(jsContent));
+        return res.end(await importAnalysis(jsContent));
     }
     next();
 };
