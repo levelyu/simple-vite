@@ -2,7 +2,7 @@
   "name": "simple-vite",
   "version": "1.0.0",
   "scripts": {
-    "start": "nodemon ./vite"
+    "start": "node ./vite"
   },
   "repository": "git@github.com:levelyu/simple-vite.git",
   "author": "zhangyh <seven_zyh@outlook.com>",
