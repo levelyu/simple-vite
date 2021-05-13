@@ -72,7 +72,7 @@ const transformMiddleware = async (req, res, next) => {
         return res.end(transformCode);
     }
     if (req.url.indexOf('.vue')!==-1) {
-        const vuePath = path.join(__dirname, '../', req.url.split('?')[0]);
+        const vuePath = path.join(__dirname, '../', req.url);
         const vueContent =  fs.readFileSync(vuePath, 'utf-8');
         const vueParseContet = compileSFC.parse(vueContent);
         const scriptContent = vueParseContet.descriptor.script.content;
