@@ -4,10 +4,11 @@
 
 <script>
 import { reactive, toRefs } from 'vue';
+import _ from 'lodash';
 export default {
     setup() {
         const state = reactive({
-            msg: 'this is sfc msgs',
+            msg: _.join(['simple', 'vite'], ' '),
         });
         return {
             ...toRefs(state),
