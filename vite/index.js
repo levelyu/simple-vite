@@ -30,7 +30,6 @@ const optimizeDeps = async () => {
     deps.forEach((dep) => {
         data[dep] = '/' + outputs.find(output => output.endsWith(`${dep}.js`));
     });
-    console.log(data);
     const dataPath = path.join(cacheDir, '_metadata.json');
     fs.writeFileSync(dataPath, JSON.stringify(data, null, 2));
 };
@@ -50,40 +49,27 @@ const indexHtmlMiddleware = (req, res, next) => {
     }
     next();
 };
-const importAnalysis = async (jsContent) => {
+const importAnalysis = async (code) => {
     await init;
-    const [imports] = parse(jsContent);
-    const specifier = imports && imports[0] && imports[0].n;
-    
-    if (specifier) {
-        // TODO: 多个import的情况
-        const data = require(path.join(cacheDir, '_metadata.json'));
-        const realPath = data[specifier] || specifier;
-        const { s, e } = imports[0];
-        const ms = new MagicString(jsContent);
-        return ms.overwrite(s, e, realPath).toString();
-    } else {
-        return jsContent;
-    }
-    // const fromReg = / from ['"](.*)['"]/g;
-    // return jsContent.replace(fromReg, (s1, s2) => {
-    //     if(s2.startsWith('/') || s2.startsWith('./') || s2.startsWith('../')) {
-    //         return s1;
-    //     } else {
-    //         const data = require(path.join(cacheDir, '_metadata.json'));
-    //         return ` from '/${data[s2]}'`;
-    //     }
-    // });
-
+    const [imports] = parse(code);
+    if (!imports || !imports.length) return code;
+    const metaData = require(path.join(cacheDir, '_metadata.json'));
+    let transformCode = new MagicString(code);
+    imports.forEach((importer) => {
+        const { n, s, e } = importer;
+        const replacePath = metaData[n] || n;
+        transformCode = transformCode.overwrite(s, e, replacePath);
+    });
+    return transformCode.toString();
 };
 const transformMiddleware = async (req, res, next) => {
     if (req.url.endsWith('.js') || req.url.endsWith('.map')) {
         const jsPath = path.join(__dirname, '../', req.url);
-        const jsContent = fs.readFileSync(jsPath, 'utf-8');
+        const code = fs.readFileSync(jsPath, 'utf-8');
         res.setHeader('Content-Type', 'application/javascript');
         res.statusCode = 200;
-        const rewriteContent = req.url.endsWith('.map') ? jsContent : await importAnalysis(jsContent);
-        return res.end(rewriteContent);
+        const transformCode = req.url.endsWith('.map') ? code : await importAnalysis(code);
+        return res.end(transformCode);
     }
     if (req.url.indexOf('.vue')!==-1) {
         const vuePath = path.join(__dirname, '../', req.url.split('?')[0]);
@@ -94,14 +80,14 @@ const transformMiddleware = async (req, res, next) => {
         const tpl = vueParseContet.descriptor.template.content;
         const tplCode = compileDom.compile(tpl, { mode: 'module' }).code;
         const tplCodeReplace = tplCode.replace('export function render(_ctx, _cache)', '__script.render=(_ctx, _cache)=>');
-        const jsContent = `
+        const code = `
                 ${await importAnalysis(replaceScript)}
                 ${tplCodeReplace}
                 export default __script;
         `;
         res.setHeader('Content-Type', 'application/javascript');
         res.statusCode = 200;
-        return res.end(await importAnalysis(jsContent));
+        return res.end(await importAnalysis(code));
     }
     next();
 };
